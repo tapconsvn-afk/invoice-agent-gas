@@ -7,8 +7,16 @@ function getInvoiceEmails() {
 
   var maxThreads = parseInt(getScriptProperty_('MAX_THREADS', '5'), 10);
   var searchDays = parseInt(getScriptProperty_('SEARCH_DAYS', '7'), 10);
+  var onlyLatest = String(getScriptProperty_('PROCESS_ONLY_LATEST_MESSAGE', 'true')).toLowerCase() === 'true';
 
-  var query = 'label:' + CONFIG.LABEL_INVOICE + ' newer_than:' + searchDays + 'd';
+  var query = [
+    'label:' + CONFIG.LABEL_INVOICE,
+    'newer_than:' + searchDays + 'd',
+    '-label:' + CONFIG.LABEL_DONE,
+    '-label:' + CONFIG.LABEL_MANUAL,
+    '-label:' + CONFIG.LABEL_NO_PDF
+  ].join(' ');
+
   var threads = GmailApp.search(query, 0, maxThreads);
 
   Logger.log('invoice_threads_found=' + threads.length);
@@ -17,6 +25,16 @@ function getInvoiceEmails() {
 
   threads.forEach(function(thread) {
     var messages = thread.getMessages();
+    if (!messages.length) return;
+
+    if (onlyLatest) {
+      entries.push({
+        thread: thread,
+        message: messages[messages.length - 1]
+      });
+      return;
+    }
+
     messages.forEach(function(message) {
       entries.push({
         thread: thread,
@@ -133,39 +151,35 @@ function isRealInvoiceEmail(message) {
 }
 
 function getPdfAttachmentsFromMessage(message) {
-  var attachments = message.getAttachments({ includeInlineImages: false });
-  var pdfs = [];
-
-  attachments.forEach(function(att) {
-    var contentType = safeString_(att.getContentType()).toLowerCase();
-    var name = safeString_(att.getName()).toLowerCase();
-
-    if (contentType === 'application/pdf' || name.slice(-4) === '.pdf') {
-      pdfs.push(att);
-    }
+  return getAttachmentsFromMessageByType_(message, function(contentType, name) {
+    return contentType === 'application/pdf' || name.slice(-4) === '.pdf';
   });
-
-  return pdfs;
 }
 
 function getXmlAttachmentsFromMessage(message) {
+  return getAttachmentsFromMessageByType_(message, function(contentType, name) {
+    return (
+      contentType === 'text/xml' ||
+      contentType === 'application/xml' ||
+      name.slice(-4) === '.xml'
+    );
+  });
+}
+
+function getAttachmentsFromMessageByType_(message, matcher) {
   var attachments = message.getAttachments({ includeInlineImages: false });
-  var xmls = [];
+  var filtered = [];
 
   attachments.forEach(function(att) {
     var contentType = safeString_(att.getContentType()).toLowerCase();
     var name = safeString_(att.getName()).toLowerCase();
 
-    if (
-      contentType === 'text/xml' ||
-      contentType === 'application/xml' ||
-      name.slice(-4) === '.xml'
-    ) {
-      xmls.push(att);
+    if (matcher(contentType, name)) {
+      filtered.push(att);
     }
   });
 
-  return xmls;
+  return filtered;
 }
 
 function getOrCreateLabel_(labelName) {
