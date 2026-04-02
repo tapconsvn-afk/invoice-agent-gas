@@ -5,6 +5,10 @@ function processInvoiceEmails() {
   autoLabelInvoiceEmails();
 
   var emailEntries = getInvoiceEmails();
+  var duplicateSet = loadDuplicateKeySet_();
+  var startedAt = new Date().getTime();
+  var maxRuntimeMs = parseInt(getScriptProperty_('MAX_RUNTIME_SECONDS', '240'), 10) * 1000;
+
   Logger.log('invoice_email_entries=' + emailEntries.length);
 
   var processed = 0;
@@ -12,10 +16,15 @@ function processInvoiceEmails() {
   var errors = 0;
 
   for (var i = 0; i < emailEntries.length; i++) {
+    if (new Date().getTime() - startedAt > maxRuntimeMs) {
+      Logger.log('runtime_limit_reached index=' + i);
+      break;
+    }
+
     var entry = emailEntries[i];
 
     try {
-      var result = processOneInvoiceEmail_(entry);
+      var result = processOneInvoiceEmail_(entry, duplicateSet);
 
       if (result === 'processed') {
         processed++;
@@ -39,7 +48,7 @@ function processInvoiceEmails() {
   Logger.log('process_done processed=' + processed + ', skipped=' + skipped + ', errors=' + errors);
 }
 
-function processOneInvoiceEmail_(entry) {
+function processOneInvoiceEmail_(entry, duplicateSet) {
   var message = entry.message;
   var thread = entry.thread;
 
@@ -49,6 +58,12 @@ function processOneInvoiceEmail_(entry) {
   var emailDate = ensureDate_(message.getDate());
 
   Logger.log('processing_message=' + messageId);
+
+  var precheckKey = buildDuplicateKey_(messageId, subject, from, '', '', '');
+  if (isDuplicateKeyInSet_(precheckKey, duplicateSet)) {
+    Logger.log('duplicate_message_skip=' + precheckKey);
+    return 'skipped';
+  }
 
   var pdfs = getPdfAttachmentsFromMessage(message);
   var xmls = getXmlAttachmentsFromMessage(message);
@@ -82,7 +97,7 @@ function processOneInvoiceEmail_(entry) {
   var duplicateKey = buildDuplicateKey_(messageId, subject, from, invoiceNumber, invoiceSymbol, sellerTaxCode);
   Logger.log('duplicate_key=' + duplicateKey);
 
-  if (isDuplicateKeyExists_(duplicateKey)) {
+  if (isDuplicateKeyInSet_(duplicateKey, duplicateSet)) {
     Logger.log('duplicate_invoice_skip=' + duplicateKey);
     return 'skipped';
   }
@@ -128,6 +143,9 @@ function processOneInvoiceEmail_(entry) {
     khoaChongTrung: duplicateKey
   });
 
+  duplicateSet[duplicateKey] = true;
+  duplicateSet[precheckKey] = true;
+
   appendInvoiceItems(duplicateKey, items, {
     soHoaDon: invoiceNumber,
     kyHieu: invoiceSymbol,
@@ -137,6 +155,13 @@ function processOneInvoiceEmail_(entry) {
   });
 
   return 'processed';
+}
+
+function isDuplicateKeyInSet_(duplicateKey, duplicateSet) {
+  var key = safeString_(duplicateKey).trim();
+  if (!key) return false;
+
+  return !!(duplicateSet && duplicateSet[key]);
 }
 
 function buildDuplicateKey_(messageId, subject, from, invoiceNumber, invoiceSymbol, sellerTaxCode) {
@@ -180,23 +205,24 @@ function hasEnoughInvoiceData_(invoiceNumber, sellerName, totalAmount, beforeTax
 }
 
 function markEmailDone_(thread) {
-  removeProcessingLabels_(thread);
-  thread.addLabel(getOrCreateLabel_(CONFIG.LABEL_DONE));
+  markEmailStatus_(thread, CONFIG.LABEL_DONE);
 }
 
 function markEmailManual_(thread) {
-  removeProcessingLabels_(thread);
-  thread.addLabel(getOrCreateLabel_(CONFIG.LABEL_MANUAL));
+  markEmailStatus_(thread, CONFIG.LABEL_MANUAL);
 }
 
 function markEmailNoPdf_(thread) {
+  markEmailStatus_(thread, CONFIG.LABEL_NO_PDF);
+}
+
+function markEmailStatus_(thread, labelName) {
   removeProcessingLabels_(thread);
-  thread.addLabel(getOrCreateLabel_(CONFIG.LABEL_NO_PDF));
+  thread.addLabel(getOrCreateLabel_(labelName));
 }
 
 function markEmailError_(thread, message, err) {
-  removeProcessingLabels_(thread);
-  thread.addLabel(getOrCreateLabel_(CONFIG.LABEL_ERROR));
+  markEmailStatus_(thread, CONFIG.LABEL_ERROR);
   Logger.log('mark_error_message=' + safeString_(message.getId()) + ' | ' + safeString_(err.message));
 }
 

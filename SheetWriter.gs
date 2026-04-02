@@ -106,9 +106,10 @@ function appendInvoiceItems(duplicateKey, items, meta) {
     return;
   }
 
-  items.forEach(function(item, index) {
-    sheet.appendRow([
-      new Date(),
+  var now = new Date();
+  var rows = items.map(function(item, index) {
+    return [
+      now,
       duplicateKey,
       safeString_(meta.soHoaDon),
       safeString_(meta.kyHieu),
@@ -124,13 +125,14 @@ function appendInvoiceItems(duplicateKey, items, meta) {
       safeString_(item.thue_suat),
       safeString_(item.tien_thue),
       safeString_(item.ghi_chu)
-    ]);
+    ];
   });
+
+  var startRow = sheet.getLastRow() + 1;
+  sheet.getRange(startRow, 1, rows.length, rows[0].length).setValues(rows);
 }
 
-function isDuplicateKeyExists_(duplicateKey) {
-  if (!duplicateKey) return false;
-
+function loadDuplicateKeySet_() {
   var ss = SpreadsheetApp.openById(CONFIG.SPREADSHEET_ID);
   var sheet = ss.getSheetByName(CONFIG.SHEET_DATA2);
 
@@ -138,16 +140,23 @@ function isDuplicateKeyExists_(duplicateKey) {
     throw new Error('Không tìm thấy sheet: ' + CONFIG.SHEET_DATA2);
   }
 
+  var set = {};
   var lastRow = sheet.getLastRow();
-  if (lastRow < 2) return false;
+
+  if (lastRow < 2) return set;
 
   var values = sheet.getRange(2, 19, lastRow - 1, 1).getValues();
-
   for (var i = 0; i < values.length; i++) {
-    if (safeString_(values[i][0]).trim() === safeString_(duplicateKey).trim()) {
-      return true;
-    }
+    var key = safeString_(values[i][0]).trim();
+    if (key) set[key] = true;
   }
 
-  return false;
+  return set;
+}
+
+function isDuplicateKeyExists_(duplicateKey) {
+  if (!duplicateKey) return false;
+
+  var existing = loadDuplicateKeySet_();
+  return !!existing[safeString_(duplicateKey).trim()];
 }

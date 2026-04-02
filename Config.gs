@@ -26,7 +26,9 @@ function setDefaultScriptProperties_() {
     SEARCH_DAYS: '7',
     OPENAI_ENABLED: 'true',
     OPENAI_MODEL: 'gpt-4o-mini',
-    ENABLE_CHI_TIET: 'true'
+    ENABLE_CHI_TIET: 'true',
+    PROCESS_ONLY_LATEST_MESSAGE: 'true',
+    MAX_RUNTIME_SECONDS: '240'
   };
 
   Object.keys(defaults).forEach(function(key) {
